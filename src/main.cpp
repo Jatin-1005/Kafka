@@ -66,8 +66,8 @@ int main(int argc, char *argv[])
 
     int messageSize = 0;
     int correlation_id = htonl(7);
-    // send(client_fd, &messageSize, 4);
-    send(client_fd, &correlation_id, 4, 0);
+    send(client_fd, &messageSize, 4, 0);
+    send(client_fd, &correlation_id, sizeof(int), 0);
     close(client_fd);
 
     close(server_fd);
