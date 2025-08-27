@@ -1,4 +1,4 @@
-[![progress-banner](https://backend.codecrafters.io/progress/kafka/273b6d62-441a-45b1-acc8-460af0eeed24)](https://app.codecrafters.io/users/codecrafters-bot?r=2qF)
+[![progress-banner](https://backend.codecrafters.io/progress/kafka/188083be-4779-49c4-90e6-420d902cdd3a)](https://app.codecrafters.io/users/codecrafters-bot?r=2qF)
 
 This is a starting point for C++ solutions to the
 ["Build Your Own Kafka" Challenge](https://codecrafters.io/challenges/kafka).

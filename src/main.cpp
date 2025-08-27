@@ -1,75 +1,58 @@
-#include <cstdlib>
-#include <cstring>
-#include <iostream>
-#include <netdb.h>
-#include <string>
-#include <unistd.h>
-#include <arpa/inet.h>
-#include <sys/socket.h>
-#include <sys/types.h>
+#include "KafkaApis.h"
 
-int main(int argc, char *argv[])
-{
+namespace {
+
+    std::function<void(int)> shutdown_handler;
+    void signal_handler(int signal) { shutdown_handler(signal); }
+
+    bool handleClient(const KafkaApis& kafka_apis, const Fd& client_fd,
+        const TCPManager& tcp_manager) {
+        return tcp_manager.readBufferFromClientFd(
+            client_fd, [&kafka_apis](const char* buf, const size_t buf_size) {
+                kafka_apis.classifyRequest(buf, buf_size);
+            });
+    }
+
+} // namespace
+
+int main(int argc, char* argv[]) {
     // Disable output buffering
     std::cout << std::unitbuf;
     std::cerr << std::unitbuf;
 
-    int server_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_fd < 0)
-    {
-        std::cerr << "Failed to create server socket: " << std::endl;
-        return 1;
+    TCPManager tcp_manager;
+    tcp_manager.createSocketAndListen();
+    ClusterMetadata cluster_metadata;
+
+    shutdown_handler = [&tcp_manager](int signal) {
+        std::cout << "Caught signal " << signal << '\n';
+        tcp_manager.~TCPManager();
+        exit(1);
+        };
+
+    signal(SIGINT, signal_handler);
+
+    while (true) {
+        Fd client_fd = tcp_manager.acceptConnections();
+        tcp_manager.addClientThread(
+            std::jthread([_client_fd = std::move(client_fd), &tcp_manager,
+                &cluster_metadata](std::stop_token st) {
+                    std::cout << "Attaching a new client thread. client-fd: "
+                        << _client_fd << " \n";
+                    KafkaApis kafka_apis(_client_fd, tcp_manager, cluster_metadata);
+
+                    while (!st.stop_requested()) {
+                        bool done =
+                            handleClient(kafka_apis, _client_fd, tcp_manager);
+                        if (done == false) { /// Client disconnected
+                            break;
+                        }
+                    }
+
+                    shutdown(_client_fd, SHUT_RDWR);
+                    std::cout << "Client thread stopped\n";
+                }));
     }
 
-    // Since the tester restarts your program quite often, setting SO_REUSEADDR
-    // ensures that we don't run into 'Address already in use' errors
-    int reuse = 1;
-    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0)
-    {
-        close(server_fd);
-        std::cerr << "setsockopt failed: " << std::endl;
-        return 1;
-    }
-
-    struct sockaddr_in server_addr{};
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = INADDR_ANY;
-    server_addr.sin_port = htons(9092);
-
-    if (bind(server_fd, reinterpret_cast<struct sockaddr *>(&server_addr), sizeof(server_addr)) != 0)
-    {
-        close(server_fd);
-        std::cerr << "Failed to bind to port 9092" << std::endl;
-        return 1;
-    }
-
-    int connection_backlog = 5;
-    if (listen(server_fd, connection_backlog) != 0)
-    {
-        close(server_fd);
-        std::cerr << "listen failed" << std::endl;
-        return 1;
-    }
-
-    std::cout << "Waiting for a client to connect...\n";
-
-    struct sockaddr_in client_addr{};
-    socklen_t client_addr_len = sizeof(client_addr);
-
-    // You can use print statements as follows for debugging, they'll be visible when running tests.
-    std::cerr << "Logs from your program will appear here!\n";
-
-    // Uncomment this block to pass the first stage
-    //
-    int client_fd = accept(server_fd, reinterpret_cast<struct sockaddr *>(&client_addr), &client_addr_len);
-    std::cout << "Client connected\n";
-
-    int messageSize = 0;
-    int correlation_id = htonl(7);
-    send(client_fd, &messageSize, 4, 0);
-    send(client_fd, &correlation_id, sizeof(int), 0);
-    close(client_fd);
-
-    close(server_fd);
     return 0;
 }
